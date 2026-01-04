@@ -97,7 +97,8 @@ class SupabaseClient {
 }
 
 // Initialize Supabase (or use localStorage for demo)
-const USE_SUPABASE = SUPABASE_URL !== 'YOUR_SUPABASE_URL';
+// Only enable Supabase when a real URL is provided (not undefined or placeholder)
+const USE_SUPABASE = !!SUPABASE_URL && SUPABASE_URL !== 'YOUR_SUPABASE_URL';
 const supabase = USE_SUPABASE ? new SupabaseClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
 // ============================================================================
