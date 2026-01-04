@@ -116,7 +116,7 @@ class StorageService {
       const { data } = supabase.auth.getUser();
       return data?.user?.id;
     }
-    return null;
+    return localStorage.getItem('demo_user_id');
   }
 
   // Local storage helpers (for demo mode)
@@ -205,30 +205,54 @@ const storage = new StorageService();
 
 class AuthService {
   async signup(email, password) {
-    if (!USE_SUPABASE) {
-      return { user: null, error: 'Supabase is not configured. Set REACT_APP_SUPABASE_URL and REACT_APP_SUPABASE_ANON_KEY.' };
+    if (USE_SUPABASE) {
+      const { data, error } = await supabase.auth.signUp({ email, password });
+      return { user: data?.user, error: error?.message };
     }
-    const { data, error } = await supabase.auth.signUp({ email, password });
-    return { user: data?.user, error: error?.message };
+    
+    // Demo mode
+    const user = {
+      id: `demo_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      email,
+      created_at: new Date().toISOString()
+    };
+    localStorage.setItem('demo_user_id', user.id);
+    localStorage.setItem('demo_user', JSON.stringify(user));
+    return { user, error: null };
   }
 
   async login(email, password) {
-    if (!USE_SUPABASE) {
-      return { user: null, error: 'Supabase is not configured. Set REACT_APP_SUPABASE_URL and REACT_APP_SUPABASE_ANON_KEY.' };
+    if (USE_SUPABASE) {
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      return { user: data?.user, error: error?.message };
     }
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    return { user: data?.user, error: error?.message };
+    
+    // Demo mode
+    const user = {
+      id: `demo_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      email,
+      created_at: new Date().toISOString()
+    };
+    localStorage.setItem('demo_user_id', user.id);
+    localStorage.setItem('demo_user', JSON.stringify(user));
+    return { user, error: null };
   }
 
   async logout() {
-    if (!USE_SUPABASE) return;
-    await supabase.auth.signOut();
+    if (USE_SUPABASE) {
+      await supabase.auth.signOut();
+    }
+    localStorage.removeItem('demo_user_id');
+    localStorage.removeItem('demo_user');
   }
 
   getCurrentUser() {
-    if (!USE_SUPABASE) return null;
-    const { data } = supabase.auth.getUser();
-    return data?.user;
+    if (USE_SUPABASE) {
+      const { data } = supabase.auth.getUser();
+      return data?.user;
+    }
+    const user = localStorage.getItem('demo_user');
+    return user ? JSON.parse(user) : null;
   }
 }
 
@@ -343,7 +367,11 @@ function AuthScreen({ onLogin }) {
     }
   };
 
-  
+  const handleDemoLogin = async () => {
+    setEmail('demo@logverse.com');
+    setPassword('demo123');
+    await handleSubmit({ preventDefault: () => {} });
+  };
 
   return (
     <div style={{
@@ -464,7 +492,27 @@ function AuthScreen({ onLogin }) {
           </button>
         </form>
 
-        
+        <div style={{
+          marginTop: '1rem',
+          textAlign: 'center'
+        }}>
+          <button
+            onClick={handleDemoLogin}
+            style={{
+              padding: '0.75rem 1.5rem',
+              background: 'transparent',
+              color: '#5e503f',
+              border: '2px dashed #5e503f',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontSize: '0.875rem',
+              fontWeight: '600',
+              width: '100%'
+            }}
+          >
+            🚀 Quick Demo Login
+          </button>
+        </div>
 
         <div style={{
           marginTop: '1.5rem',
@@ -489,7 +537,17 @@ function AuthScreen({ onLogin }) {
           </button>
         </div>
 
-        
+        <div style={{
+          marginTop: '1rem',
+          padding: '0.75rem',
+          background: '#f2f4f3',
+          borderRadius: '8px',
+          fontSize: '0.75rem',
+          color: '#5e503f',
+          textAlign: 'center'
+        }}>
+          💡 <strong>Demo Mode:</strong> Enter any email/password to try it out!
+        </div>
       </div>
     </div>
   );
