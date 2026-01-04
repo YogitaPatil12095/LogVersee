@@ -1,4 +1,5 @@
 import React, { useState, useEffect, createContext, useContext } from 'react';
+import { createClient } from '@supabase/supabase-js';
 import { Settings, Sun, Moon, Edit2, Trash2, X, LogOut, ChevronLeft, ChevronRight } from 'lucide-react';
 
 // ============================================================================
@@ -8,98 +9,12 @@ import { Settings, Sun, Moon, Edit2, Trash2, X, LogOut, ChevronLeft, ChevronRigh
 // For artifacts, we use demo mode by default (localStorage)
 const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
-// Simple Supabase client (lightweight implementation)
-class SupabaseClient {
-  constructor(url, key) {
-    this.url = url;
-    this.key = key;
-    this.authToken = localStorage.getItem('supabase_auth_token');
-  }
-
-  async request(endpoint, options = {}) {
-    const headers = {
-      'Content-Type': 'application/json',
-      'apikey': this.key,
-      ...(this.authToken && { 'Authorization': `Bearer ${this.authToken}` })
-    };
-
-    const response = await fetch(`${this.url}${endpoint}`, {
-      ...options,
-      headers: { ...headers, ...options.headers }
-    });
-
-    const data = await response.json();
-    return { data, error: !response.ok ? data : null };
-  }
-
-  auth = {
-    signUp: async ({ email, password }) => {
-      const { data, error } = await this.request('/auth/v1/signup', {
-        method: 'POST',
-        body: JSON.stringify({ email, password })
-      });
-      if (data?.access_token) {
-        localStorage.setItem('supabase_auth_token', data.access_token);
-        localStorage.setItem('supabase_user', JSON.stringify(data.user));
-        this.authToken = data.access_token;
-      }
-      return { data, error };
-    },
-
-    signInWithPassword: async ({ email, password }) => {
-      const { data, error } = await this.request('/auth/v1/token?grant_type=password', {
-        method: 'POST',
-        body: JSON.stringify({ email, password })
-      });
-      if (data?.access_token) {
-        localStorage.setItem('supabase_auth_token', data.access_token);
-        localStorage.setItem('supabase_user', JSON.stringify(data.user));
-        this.authToken = data.access_token;
-      }
-      return { data, error };
-    },
-
-    signOut: async () => {
-      localStorage.removeItem('supabase_auth_token');
-      localStorage.removeItem('supabase_user');
-      this.authToken = null;
-      return { error: null };
-    },
-
-    getUser: () => {
-      const user = localStorage.getItem('supabase_user');
-      return { data: { user: user ? JSON.parse(user) : null } };
-    }
-  };
-
-  from(table) {
-    return {
-      select: (columns = '*') => ({
-        eq: (column, value) => this.query(table, 'select', { columns, filters: { [column]: value } }),
-        order: (column, options) => this.query(table, 'select', { columns, order: { column, ...options } })
-      }),
-      insert: (data) => this.query(table, 'insert', { data }),
-      upsert: (data, options) => this.query(table, 'upsert', { data, options }),
-      update: (data) => ({
-        eq: (column, value) => this.query(table, 'update', { data, filters: { [column]: value } })
-      }),
-      delete: () => ({
-        eq: (column, value) => this.query(table, 'delete', { filters: { [column]: value } })
-      })
-    };
-  }
-
-  async query(table, operation, params) {
-    // This is a simplified implementation for demo
-    // In production, use the official @supabase/supabase-js package
-    return { data: [], error: null };
-  }
-}
+// Use the official Supabase JS client when configured
 
 // Initialize Supabase (or use localStorage for demo)
-// Only enable Supabase when a real URL is provided (not undefined or placeholder)
-const USE_SUPABASE = !!SUPABASE_URL && SUPABASE_URL !== 'YOUR_SUPABASE_URL';
-const supabase = USE_SUPABASE ? new SupabaseClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+// Only enable Supabase when both URL and anon key are provided (not undefined/placeholders)
+const USE_SUPABASE = !!SUPABASE_URL && !!SUPABASE_ANON_KEY && SUPABASE_URL !== 'YOUR_SUPABASE_URL' && SUPABASE_ANON_KEY !== 'YOUR_SUPABASE_ANON_KEY';
+const supabase = USE_SUPABASE ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
 // ============================================================================
 // STORAGE ABSTRACTION (Works with both localStorage and Supabase)
@@ -113,8 +28,14 @@ class StorageService {
   // Get current user ID
   getUserId() {
     if (this.useSupabase) {
-      const { data } = supabase.auth.getUser();
-      return data?.user?.id;
+      try {
+        const token = localStorage.getItem('supabase.auth.token');
+        if (!token) return null;
+        const parsed = JSON.parse(token);
+        return parsed?.currentSession?.user?.id || null;
+      } catch (e) {
+        return null;
+      }
     }
     return localStorage.getItem('demo_user_id');
   }
@@ -205,37 +126,19 @@ const storage = new StorageService();
 
 class AuthService {
   async signup(email, password) {
-    if (USE_SUPABASE) {
-      const { data, error } = await supabase.auth.signUp({ email, password });
-      return { user: data?.user, error: error?.message };
+    if (!USE_SUPABASE) {
+      return { user: null, error: 'Supabase is not configured. Set REACT_APP_SUPABASE_URL and REACT_APP_SUPABASE_ANON_KEY.' };
     }
-    
-    // Demo mode
-    const user = {
-      id: `demo_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      email,
-      created_at: new Date().toISOString()
-    };
-    localStorage.setItem('demo_user_id', user.id);
-    localStorage.setItem('demo_user', JSON.stringify(user));
-    return { user, error: null };
+    const { data, error } = await supabase.auth.signUp({ email, password });
+    return { user: data?.user, error: error?.message };
   }
 
   async login(email, password) {
-    if (USE_SUPABASE) {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      return { user: data?.user, error: error?.message };
+    if (!USE_SUPABASE) {
+      return { user: null, error: 'Supabase is not configured. Set REACT_APP_SUPABASE_URL and REACT_APP_SUPABASE_ANON_KEY.' };
     }
-    
-    // Demo mode
-    const user = {
-      id: `demo_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      email,
-      created_at: new Date().toISOString()
-    };
-    localStorage.setItem('demo_user_id', user.id);
-    localStorage.setItem('demo_user', JSON.stringify(user));
-    return { user, error: null };
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    return { user: data?.user, error: error?.message };
   }
 
   async logout() {
@@ -246,10 +149,14 @@ class AuthService {
     localStorage.removeItem('demo_user');
   }
 
-  getCurrentUser() {
+  async getCurrentUser() {
     if (USE_SUPABASE) {
-      const { data } = supabase.auth.getUser();
-      return data?.user;
+      try {
+        const { data } = await supabase.auth.getUser();
+        return data?.user || null;
+      } catch (e) {
+        return null;
+      }
     }
     const user = localStorage.getItem('demo_user');
     return user ? JSON.parse(user) : null;
@@ -317,7 +224,35 @@ const defaultActivities = [
 // ============================================================================
 
 export default function LogVerse() {
-  const [user, setUser] = useState(() => authService.getCurrentUser());
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    let mounted = true;
+    authService.getCurrentUser().then(u => {
+      if (mounted) setUser(u);
+    });
+
+    let subscription = null;
+    if (USE_SUPABASE && supabase?.auth?.onAuthStateChange) {
+      const { data } = supabase.auth.onAuthStateChange((event, session) => {
+        if (!mounted) return;
+        // Update user state on sign in / sign out / token refresh
+        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+          setUser(session?.user ?? null);
+        } else if (event === 'SIGNED_OUT') {
+          setUser(null);
+        }
+      });
+      subscription = data?.subscription || null;
+    }
+
+    return () => {
+      mounted = false;
+      if (subscription && typeof subscription.unsubscribe === 'function') {
+        subscription.unsubscribe();
+      }
+    };
+  }, []);
 
   if (!user) {
     return <AuthScreen onLogin={setUser} />;
@@ -367,11 +302,7 @@ function AuthScreen({ onLogin }) {
     }
   };
 
-  const handleDemoLogin = async () => {
-    setEmail('demo@logverse.com');
-    setPassword('demo123');
-    await handleSubmit({ preventDefault: () => {} });
-  };
+  
 
   return (
     <div style={{
@@ -492,27 +423,6 @@ function AuthScreen({ onLogin }) {
           </button>
         </form>
 
-        <div style={{
-          marginTop: '1rem',
-          textAlign: 'center'
-        }}>
-          <button
-            onClick={handleDemoLogin}
-            style={{
-              padding: '0.75rem 1.5rem',
-              background: 'transparent',
-              color: '#5e503f',
-              border: '2px dashed #5e503f',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              fontSize: '0.875rem',
-              fontWeight: '600',
-              width: '100%'
-            }}
-          >
-            🚀 Quick Demo Login
-          </button>
-        </div>
 
         <div style={{
           marginTop: '1.5rem',
@@ -537,17 +447,7 @@ function AuthScreen({ onLogin }) {
           </button>
         </div>
 
-        <div style={{
-          marginTop: '1rem',
-          padding: '0.75rem',
-          background: '#f2f4f3',
-          borderRadius: '8px',
-          fontSize: '0.75rem',
-          color: '#5e503f',
-          textAlign: 'center'
-        }}>
-          💡 <strong>Demo Mode:</strong> Enter any email/password to try it out!
-        </div>
+        {/* Demo mode removed: pure Supabase auth required */}
       </div>
     </div>
   );
@@ -771,7 +671,7 @@ function Header() {
       <div>
         <h1 style={{ margin: 0, fontSize: '1.8rem', fontWeight: '700' }}>LogVerse</h1>
         <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.875rem', opacity: 0.7 }}>
-          {user?.email || 'Demo User'}
+          {user?.email || ''}
         </p>
       </div>
       
