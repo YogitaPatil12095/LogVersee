@@ -116,7 +116,8 @@ class StorageService {
       const { data } = supabase.auth.getUser();
       return data?.user?.id;
     }
-    return localStorage.getItem('demo_user_id');
+    const user = localStorage.getItem('local_current_user');
+    return user ? JSON.parse(user).id : null;
   }
 
   // Local storage helpers (for demo mode)
@@ -209,16 +210,25 @@ class AuthService {
       const { data, error } = await supabase.auth.signUp({ email, password });
       return { user: data?.user, error: error?.message };
     }
-    
-    // Demo mode
+
+    // Local auth: store users in `local_users`, set `local_current_user` on signup
+    const usersKey = 'local_users';
+    const users = JSON.parse(localStorage.getItem(usersKey) || '[]');
+    if (users.find(u => u.email === email)) {
+      return { user: null, error: 'Account with this email already exists.' };
+    }
+
     const user = {
-      id: `demo_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: `local_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
       email,
-      created_at: new Date().toISOString()
+      created_at: new Date().toISOString(),
+      // store a simple encoded password (not cryptographically secure)
+      password: btoa(password)
     };
-    localStorage.setItem('demo_user_id', user.id);
-    localStorage.setItem('demo_user', JSON.stringify(user));
-    return { user, error: null };
+    users.push(user);
+    localStorage.setItem(usersKey, JSON.stringify(users));
+    localStorage.setItem('local_current_user', JSON.stringify({ id: user.id, email: user.email, created_at: user.created_at }));
+    return { user: { id: user.id, email: user.email, created_at: user.created_at }, error: null };
   }
 
   async login(email, password) {
@@ -226,24 +236,27 @@ class AuthService {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       return { user: data?.user, error: error?.message };
     }
-    
-    // Demo mode
-    const user = {
-      id: `demo_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      email,
-      created_at: new Date().toISOString()
-    };
-    localStorage.setItem('demo_user_id', user.id);
-    localStorage.setItem('demo_user', JSON.stringify(user));
-    return { user, error: null };
+
+    // Local auth: verify against stored users
+    const usersKey = 'local_users';
+    const users = JSON.parse(localStorage.getItem(usersKey) || '[]');
+    const found = users.find(u => u.email === email);
+    if (!found) {
+      return { user: null, error: 'No account found for this email. Please sign up first.' };
+    }
+    if (found.password !== btoa(password)) {
+      return { user: null, error: 'Invalid credentials.' };
+    }
+
+    localStorage.setItem('local_current_user', JSON.stringify({ id: found.id, email: found.email, created_at: found.created_at }));
+    return { user: { id: found.id, email: found.email, created_at: found.created_at }, error: null };
   }
 
   async logout() {
     if (USE_SUPABASE) {
       await supabase.auth.signOut();
     }
-    localStorage.removeItem('demo_user_id');
-    localStorage.removeItem('demo_user');
+    localStorage.removeItem('local_current_user');
   }
 
   getCurrentUser() {
@@ -251,7 +264,7 @@ class AuthService {
       const { data } = supabase.auth.getUser();
       return data?.user;
     }
-    const user = localStorage.getItem('demo_user');
+    const user = localStorage.getItem('local_current_user');
     return user ? JSON.parse(user) : null;
   }
 }
@@ -339,7 +352,7 @@ export default function LogVerse() {
 // ============================================================================
 
 function AuthScreen({ onLogin }) {
-  const [isSignup, setIsSignup] = useState(false);
+  const [isSignup, setIsSignup] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -367,11 +380,7 @@ function AuthScreen({ onLogin }) {
     }
   };
 
-  const handleDemoLogin = async () => {
-    setEmail('demo@logverse.com');
-    setPassword('demo123');
-    await handleSubmit({ preventDefault: () => {} });
-  };
+  
 
   return (
     <div style={{
@@ -492,27 +501,7 @@ function AuthScreen({ onLogin }) {
           </button>
         </form>
 
-        <div style={{
-          marginTop: '1rem',
-          textAlign: 'center'
-        }}>
-          <button
-            onClick={handleDemoLogin}
-            style={{
-              padding: '0.75rem 1.5rem',
-              background: 'transparent',
-              color: '#5e503f',
-              border: '2px dashed #5e503f',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              fontSize: '0.875rem',
-              fontWeight: '600',
-              width: '100%'
-            }}
-          >
-            🚀 Quick Demo Login
-          </button>
-        </div>
+        
 
         <div style={{
           marginTop: '1.5rem',
@@ -537,17 +526,7 @@ function AuthScreen({ onLogin }) {
           </button>
         </div>
 
-        <div style={{
-          marginTop: '1rem',
-          padding: '0.75rem',
-          background: '#f2f4f3',
-          borderRadius: '8px',
-          fontSize: '0.75rem',
-          color: '#5e503f',
-          textAlign: 'center'
-        }}>
-          💡 <strong>Demo Mode:</strong> Enter any email/password to try it out!
-        </div>
+        
       </div>
     </div>
   );
