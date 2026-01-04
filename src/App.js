@@ -116,8 +116,7 @@ class StorageService {
       const { data } = supabase.auth.getUser();
       return data?.user?.id;
     }
-    const user = localStorage.getItem('local_current_user');
-    return user ? JSON.parse(user).id : null;
+    return null;
   }
 
   // Local storage helpers (for demo mode)
@@ -206,66 +205,30 @@ const storage = new StorageService();
 
 class AuthService {
   async signup(email, password) {
-    if (USE_SUPABASE) {
-      const { data, error } = await supabase.auth.signUp({ email, password });
-      return { user: data?.user, error: error?.message };
+    if (!USE_SUPABASE) {
+      return { user: null, error: 'Supabase is not configured. Set REACT_APP_SUPABASE_URL and REACT_APP_SUPABASE_ANON_KEY.' };
     }
-
-    // Local auth: store users in `local_users`, set `local_current_user` on signup
-    const usersKey = 'local_users';
-    const users = JSON.parse(localStorage.getItem(usersKey) || '[]');
-    if (users.find(u => u.email === email)) {
-      return { user: null, error: 'Account with this email already exists.' };
-    }
-
-    const user = {
-      id: `local_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
-      email,
-      created_at: new Date().toISOString(),
-      // store a simple encoded password (not cryptographically secure)
-      password: btoa(password)
-    };
-    users.push(user);
-    localStorage.setItem(usersKey, JSON.stringify(users));
-    localStorage.setItem('local_current_user', JSON.stringify({ id: user.id, email: user.email, created_at: user.created_at }));
-    return { user: { id: user.id, email: user.email, created_at: user.created_at }, error: null };
+    const { data, error } = await supabase.auth.signUp({ email, password });
+    return { user: data?.user, error: error?.message };
   }
 
   async login(email, password) {
-    if (USE_SUPABASE) {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      return { user: data?.user, error: error?.message };
+    if (!USE_SUPABASE) {
+      return { user: null, error: 'Supabase is not configured. Set REACT_APP_SUPABASE_URL and REACT_APP_SUPABASE_ANON_KEY.' };
     }
-
-    // Local auth: verify against stored users
-    const usersKey = 'local_users';
-    const users = JSON.parse(localStorage.getItem(usersKey) || '[]');
-    const found = users.find(u => u.email === email);
-    if (!found) {
-      return { user: null, error: 'No account found for this email. Please sign up first.' };
-    }
-    if (found.password !== btoa(password)) {
-      return { user: null, error: 'Invalid credentials.' };
-    }
-
-    localStorage.setItem('local_current_user', JSON.stringify({ id: found.id, email: found.email, created_at: found.created_at }));
-    return { user: { id: found.id, email: found.email, created_at: found.created_at }, error: null };
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    return { user: data?.user, error: error?.message };
   }
 
   async logout() {
-    if (USE_SUPABASE) {
-      await supabase.auth.signOut();
-    }
-    localStorage.removeItem('local_current_user');
+    if (!USE_SUPABASE) return;
+    await supabase.auth.signOut();
   }
 
   getCurrentUser() {
-    if (USE_SUPABASE) {
-      const { data } = supabase.auth.getUser();
-      return data?.user;
-    }
-    const user = localStorage.getItem('local_current_user');
-    return user ? JSON.parse(user) : null;
+    if (!USE_SUPABASE) return null;
+    const { data } = supabase.auth.getUser();
+    return data?.user;
   }
 }
 
@@ -352,7 +315,7 @@ export default function LogVerse() {
 // ============================================================================
 
 function AuthScreen({ onLogin }) {
-  const [isSignup, setIsSignup] = useState(true);
+  const [isSignup, setIsSignup] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
