@@ -49,37 +49,59 @@ class StorageService {
 
   // Get activities
   async getActivities() {
-    if (this.useSupabase) {
-      const { data } = await supabase.from('activities').select('*').order('created_at', { ascending: true });
-      return data || [];
-    }
+    // Try Supabase first when enabled. If Supabase is not set up or returns no result,
+    // fall back to per-user localStorage so state persists across sign-out/sign-in.
     const key = this.getUserKey('activities');
+    if (this.useSupabase) {
+      try {
+        const { data, error } = await supabase.from('activities').select('*').order('created_at', { ascending: true });
+        if (!error && data && data.length > 0) {
+          return data;
+        }
+      } catch (e) {
+        // ignore and fallback to localStorage
+      }
+    }
     const data = localStorage.getItem(key);
     return data ? JSON.parse(data) : [];
   }
 
   // Save activities
   async saveActivities(activities) {
-    if (this.useSupabase) {
-      // In production, handle individual inserts/updates
-      return;
-    }
+    // Persist to both Supabase (if you want server-side sync) and localStorage as a
+    // reliable client-side fallback so user data is not lost on logout.
     const key = this.getUserKey('activities');
-    localStorage.setItem(key, JSON.stringify(activities));
+    try {
+      if (this.useSupabase) {
+        // Try a simple upsert into a user-scoped JSON store table named `user_activities`.
+        // If that table is not present, this will fail harmlessly and we will still
+        // persist to localStorage.
+        await supabase.from('user_activities').upsert({ user_id: this.getUserId(), activities });
+      }
+    } catch (e) {
+      // ignore
+    }
+    if (key) localStorage.setItem(key, JSON.stringify(activities));
   }
 
   // Get grid data for a month
   async getGridData(monthKey) {
-    if (this.useSupabase) {
-      const { data } = await supabase.from('grid_cells').select('*').eq('month_key', monthKey);
-      const gridData = {};
-      data?.forEach(cell => {
-        const cellKey = `${cell.date_key}_${cell.hour}`;
-        gridData[cellKey] = { activityId: cell.activity_id, note: cell.note };
-      });
-      return gridData;
-    }
     const key = this.getUserKey('gridData');
+    if (this.useSupabase) {
+      try {
+        const { data, error } = await supabase.from('grid_cells').select('*').eq('month_key', monthKey);
+        if (!error && data) {
+          const gridData = {};
+          data.forEach(cell => {
+            const cellKey = `${cell.date_key}_${cell.hour}`;
+            gridData[cellKey] = { activityId: cell.activity_id, note: cell.note };
+          });
+          return gridData;
+        }
+      } catch (e) {
+        // fallback to localStorage
+      }
+    }
     const allData = localStorage.getItem(key);
     const parsed = allData ? JSON.parse(allData) : {};
     return parsed[monthKey] || {};
@@ -87,34 +109,45 @@ class StorageService {
 
   // Save all grid data
   async saveGridData(gridData) {
-    if (this.useSupabase) {
-      // In production, handle individual upserts
-      return;
-    }
     const key = this.getUserKey('gridData');
-    localStorage.setItem(key, JSON.stringify(gridData));
+    try {
+      if (this.useSupabase) {
+        // Try to upsert full grid JSON into a user-scoped table `user_grid_data`.
+        await supabase.from('user_grid_data').upsert({ user_id: this.getUserId(), grid_data: gridData });
+      }
+    } catch (e) {
+      // ignore
+    }
+    if (key) localStorage.setItem(key, JSON.stringify(gridData));
   }
 
   // Get theme
   async getTheme() {
-    if (this.useSupabase) {
-      const userId = this.getUserId();
-      const { data } = await supabase.from('user_preferences').select('theme').eq('user_id', userId);
-      return data?.[0]?.theme || 'light';
-    }
     const key = this.getUserKey('theme');
+    if (this.useSupabase) {
+      try {
+        const userId = this.getUserId();
+        const { data, error } = await supabase.from('user_preferences').select('theme').eq('user_id', userId);
+        if (!error && data && data.length > 0) return data[0].theme;
+      } catch (e) {
+        // fallback
+      }
+    }
     return localStorage.getItem(key) || 'light';
   }
 
   // Save theme
   async saveTheme(theme) {
-    if (this.useSupabase) {
-      const userId = this.getUserId();
-      await supabase.from('user_preferences').upsert({ user_id: userId, theme });
-      return;
-    }
     const key = this.getUserKey('theme');
-    localStorage.setItem(key, theme);
+    try {
+      if (this.useSupabase) {
+        const userId = this.getUserId();
+        await supabase.from('user_preferences').upsert({ user_id: userId, theme });
+      }
+    } catch (e) {
+      // ignore
+    }
+    if (key) localStorage.setItem(key, theme);
   }
 }
 
