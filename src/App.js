@@ -740,6 +740,7 @@ function MainApp() {
 function Header() {
   const { theme, toggleTheme, colors } = useTheme();
   const { user, logout } = useAuth();
+  const [showDebug, setShowDebug] = useState(false);
 
   return (
     <header style={{
@@ -799,8 +800,68 @@ function Header() {
           <LogOut size={18} />
           Logout
         </button>
+        <button
+          onClick={() => setShowDebug(s => !s)}
+          style={{
+            background: 'transparent',
+            border: '1px solid ' + colors.border,
+            borderRadius: '8px',
+            padding: '0.5rem',
+            cursor: 'pointer'
+          }}
+        >
+          {showDebug ? 'Hide Debug' : 'Show Debug'}
+        </button>
       </div>
     </header>
+    {showDebug && <DebugPanel />}
+  );
+}
+
+function DebugPanel() {
+  const [info, setInfo] = useState({});
+
+  const refresh = async () => {
+    const tokenRaw = localStorage.getItem('supabase.auth.token');
+    let session = null;
+    let user = null;
+    try {
+      if (supabase) {
+        const s = await supabase.auth.getSession();
+        const u = await supabase.auth.getUser();
+        session = s?.data || null;
+        user = u?.data || null;
+      }
+    } catch (e) {
+      console.debug('DebugPanel - supabase error', e);
+    }
+
+    const demoUserId = localStorage.getItem('demo_user_id');
+    const activitiesKey = `user_${user?.user?.id || demoUserId}_activities`;
+    const gridKey = `user_${user?.user?.id || demoUserId}_gridData`;
+    const activitiesLocal = localStorage.getItem(activitiesKey);
+    const gridLocal = localStorage.getItem(gridKey);
+
+    setInfo({ tokenRaw: !!tokenRaw, session, user, activitiesKey, gridKey, activitiesLocal: !!activitiesLocal, gridLocal: !!gridLocal });
+  };
+
+  useEffect(() => { refresh(); }, []);
+
+  return (
+    <div style={{ padding: '0.75rem 1rem', background: '#fff6', border: '1px solid #ccc', borderRadius: 8, margin: '1rem' }}>
+      <div style={{ fontWeight: 700, marginBottom: 8 }}>Debug</div>
+      <div style={{ fontSize: 13 }}>
+        <div>supabase.auth.token present: {String(info.tokenRaw)}</div>
+        <div>session user id: {info.user?.user?.id || 'null'}</div>
+        <div>activities local key: {info.activitiesKey}</div>
+        <div>grid local key: {info.gridKey}</div>
+        <div>activitiesLocal exists: {String(info.activitiesLocal)}</div>
+        <div>gridLocal exists: {String(info.gridLocal)}</div>
+      </div>
+      <div style={{ marginTop: 8 }}>
+        <button onClick={refresh} style={{ padding: '0.5rem', borderRadius: 6 }}>Refresh</button>
+      </div>
+    </div>
   );
 }
 
