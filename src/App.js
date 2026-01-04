@@ -54,15 +54,24 @@ class StorageService {
     const key = this.getUserKey('activities');
     if (this.useSupabase) {
       try {
-        const { data, error } = await supabase.from('activities').select('*').order('created_at', { ascending: true });
-        if (!error && data && data.length > 0) {
-          return data;
+        // Prefer reading the user-scoped `user_activities` table
+        const { data: userData } = await supabase.auth.getUser();
+        const userId = userData?.user?.id || null;
+        if (userId) {
+          const { data, error } = await supabase.from('user_activities').select('activities').eq('user_id', userId).limit(1);
+          if (!error && data && data.length > 0) {
+            if (typeof window !== 'undefined') console.debug('getActivities - from user_activities', { userId, row: data[0] });
+            return data[0].activities || [];
+          }
+        } else {
+          if (typeof window !== 'undefined') console.debug('getActivities - no userId (no session)');
         }
       } catch (e) {
+        if (typeof window !== 'undefined') console.debug('getActivities - supabase read error', e);
         // ignore and fallback to localStorage
       }
     }
-    const data = localStorage.getItem(key);
+    const data = key ? localStorage.getItem(key) : null;
     return data ? JSON.parse(data) : [];
   }
 
@@ -102,20 +111,25 @@ class StorageService {
     const key = this.getUserKey('gridData');
     if (this.useSupabase) {
       try {
-        const { data, error } = await supabase.from('grid_cells').select('*').eq('month_key', monthKey);
-        if (!error && data) {
-          const gridData = {};
-          data.forEach(cell => {
-            const cellKey = `${cell.date_key}_${cell.hour}`;
-            gridData[cellKey] = { activityId: cell.activity_id, note: cell.note };
-          });
-          return gridData;
+        // Read the user-scoped `user_grid_data` table where we store full grid JSON
+        const { data: userData } = await supabase.auth.getUser();
+        const userId = userData?.user?.id || null;
+        if (userId) {
+          const { data, error } = await supabase.from('user_grid_data').select('grid_data').eq('user_id', userId).limit(1);
+          if (!error && data && data.length > 0) {
+            const grid = data[0].grid_data || {};
+            if (typeof window !== 'undefined') console.debug('getGridData - from user_grid_data', { userId, monthKey, present: !!grid[monthKey] });
+            return grid[monthKey] || {};
+          }
+        } else {
+          if (typeof window !== 'undefined') console.debug('getGridData - no userId (no session)');
         }
       } catch (e) {
+        if (typeof window !== 'undefined') console.debug('getGridData - supabase read error', e);
         // fallback to localStorage
       }
     }
-    const allData = localStorage.getItem(key);
+    const allData = key ? localStorage.getItem(key) : null;
     const parsed = allData ? JSON.parse(allData) : {};
     return parsed[monthKey] || {};
   }
