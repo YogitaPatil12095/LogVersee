@@ -73,10 +73,23 @@ class StorageService {
     const key = this.getUserKey('activities');
     try {
       if (this.useSupabase) {
-        // Try a simple upsert into a user-scoped JSON store table named `user_activities`.
-        // If that table is not present, this will fail harmlessly and we will still
-        // persist to localStorage.
-        await supabase.from('user_activities').upsert({ user_id: this.getUserId(), activities });
+        // Fetch authenticated session/user first. If there's no signed-in user, skip
+        // the Supabase upsert to avoid sending `user_id: null`.
+        try {
+          // DEBUG: surface session info before upsert
+          if (typeof window !== 'undefined') {
+            const sess = await supabase.auth.getSession();
+            console.debug('saveActivities - session', sess);
+          }
+          const { data: userData } = await supabase.auth.getUser();
+          const userId = userData?.user?.id || null;
+          if (userId) {
+            const { data: upsertRes, error: upsertErr } = await supabase.from('user_activities').upsert({ user_id: userId, activities });
+            if (typeof window !== 'undefined') console.debug('user_activities upsert', { upsertRes, upsertErr });
+          }
+        } catch (e) {
+          // ignore and fallback to localStorage
+        }
       }
     } catch (e) {
       // ignore
@@ -113,7 +126,20 @@ class StorageService {
     try {
       if (this.useSupabase) {
         // Try to upsert full grid JSON into a user-scoped table `user_grid_data`.
-        await supabase.from('user_grid_data').upsert({ user_id: this.getUserId(), grid_data: gridData });
+        try {
+          if (typeof window !== 'undefined') {
+            const sess = await supabase.auth.getSession();
+            console.debug('saveGridData - session', sess);
+          }
+          const { data: userData } = await supabase.auth.getUser();
+          const userId = userData?.user?.id || null;
+          if (userId) {
+            const { data: upsertRes, error: upsertErr } = await supabase.from('user_grid_data').upsert({ user_id: userId, grid_data: gridData });
+            if (typeof window !== 'undefined') console.debug('user_grid_data upsert', { upsertRes, upsertErr });
+          }
+        } catch (e) {
+          // ignore and fallback to localStorage
+        }
       }
     } catch (e) {
       // ignore
@@ -126,9 +152,13 @@ class StorageService {
     const key = this.getUserKey('theme');
     if (this.useSupabase) {
       try {
-        const userId = this.getUserId();
-        const { data, error } = await supabase.from('user_preferences').select('theme').eq('user_id', userId);
-        if (!error && data && data.length > 0) return data[0].theme;
+        // Ensure we have an authenticated user before querying by user_id.
+        const { data: userData } = await supabase.auth.getUser();
+        const userId = userData?.user?.id || null;
+        if (userId) {
+          const { data, error } = await supabase.from('user_preferences').select('theme').eq('user_id', userId);
+          if (!error && data && data.length > 0) return data[0].theme;
+        }
       } catch (e) {
         // fallback
       }
@@ -141,8 +171,11 @@ class StorageService {
     const key = this.getUserKey('theme');
     try {
       if (this.useSupabase) {
-        const userId = this.getUserId();
-        await supabase.from('user_preferences').upsert({ user_id: userId, theme });
+        const { data: userData } = await supabase.auth.getUser();
+        const userId = userData?.user?.id || null;
+        if (userId) {
+          await supabase.from('user_preferences').upsert({ user_id: userId, theme });
+        }
       }
     } catch (e) {
       // ignore
@@ -163,6 +196,8 @@ class AuthService {
       return { user: null, error: 'Supabase is not configured. Set REACT_APP_SUPABASE_URL and REACT_APP_SUPABASE_ANON_KEY.' };
     }
     const { data, error } = await supabase.auth.signUp({ email, password });
+    // DEBUG: log signup result (temporary)
+    if (typeof window !== 'undefined') console.debug('supabase.signUp ->', { data, error });
     return { user: data?.user, error: error?.message };
   }
 
@@ -171,6 +206,8 @@ class AuthService {
       return { user: null, error: 'Supabase is not configured. Set REACT_APP_SUPABASE_URL and REACT_APP_SUPABASE_ANON_KEY.' };
     }
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    // DEBUG: log login result (temporary)
+    if (typeof window !== 'undefined') console.debug('supabase.signInWithPassword ->', { data, error });
     return { user: data?.user, error: error?.message };
   }
 
